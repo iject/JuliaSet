@@ -1,0 +1,231 @@
+import androidx.compose.desktop.ui.tooling.preview.Preview
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.rememberScrollableState
+import androidx.compose.foundation.gestures.scrollable
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material.MaterialTheme
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.colorspace.ColorSpace
+import androidx.compose.ui.graphics.colorspace.ColorSpaces
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
+import kotlinx.coroutines.*
+import java.util.*
+import kotlin.time.ExperimentalTime
+import kotlin.time.measureTime
+
+
+class Complex(var re: Double, var im: Double){
+    operator fun plus(c: Complex) : Complex{
+        return Complex(this.re + c.re, this.im + c.im)
+    }
+
+    operator fun times(c: Complex) : Complex{
+        var re1: Double
+        var im1: Double
+
+        re1 = this.re * c.re - this.im * c.im
+        im1 = this.re * c.im + this.im * c.re
+        return Complex(re1, im1)
+    }
+
+    fun abs(): Double{
+        return Math.sqrt(re*re + im*im)
+    }
+
+    override fun toString(): String {
+        return "$re + i$im"
+    }
+}
+
+fun CalculateR(c: Complex): Double {
+    return (1 + Math.sqrt(1 + 4 * c.abs())) / 2
+}
+
+fun SqPolyIteration(z0: Complex, c: Complex, n: Int, r: Double = 0.0):  MutableList<Complex>
+{
+    var res: MutableList<Complex> = mutableListOf();
+    res.add(z0);
+    for (i in 0 until n)
+    {
+        if (r > 0)
+        {
+            if (res.last.abs() > r)
+            {
+                break;
+            }
+        }
+        res.add(res.last() * res.last() + c);
+    }
+    return res;
+}
+
+fun ComplexHeatMap(value: Double, min: Double, max: Double, z: Complex, r: Double): Color {
+    val x: Double = (value - min) / (max - min)
+    return Color(
+        red = (255 * x).toInt(),
+        green = (255 * (1 - x)).toInt(),
+        blue = (255.0 * (if (z.abs() / r > 1) 1.0 else z.abs() / r)).toInt(),
+        alpha = 255
+    )
+}
+
+/*fun getXYidx(): Flow<MutableMap<Int, Int>> = flow {
+    var xyIdx: MutableMap<Int, MutableMap<Int, Int>> = mutableMapOf()
+    var maxIdx = 0
+    for (i in 0 until width) {
+        xyIdx.put(i, mutableMapOf())
+        for (j in 0 until height) {
+            val x = xMin + i * xStep
+            val y = yMin + j * yStep
+            val z = Complex(x, y)
+            val zIter: MutableList<Complex> = SqPolyIteration(z, c, maxIter, r)
+            val idx: Int = zIter.count() - 1
+            if (maxIdx < idx) {
+                maxIdx = idx
+            }
+            xyIdx[i]?.put(j, idx)
+        }
+    }
+    for (item in 1..5) {
+        emit(item * item)
+    }
+}*/
+
+
+fun Paint(mas: Map<String, Any>) {
+    for (i in mas["i"] as Int until mas["bound"] as Int) {
+        for (j in 0 until mas["height"] as Int) {
+            var xyIdx = mas["xyIdx"] as MutableMap<Int, MutableMap<Int, Int>>
+            val idx = xyIdx[i]!!.get(j)!!
+            val x = mas["xMin"] as Double + i * mas["xStep"] as Double
+            val y = mas["yMin"] as Double + j * mas["yStep"] as Double
+            val z = Complex(x, y)
+
+            var d = mas["d"] as DrawScope
+            d.drawCircle(
+                color = ComplexHeatMap(idx.toDouble(), 0.0, (mas["maxIdx"] as Int).toDouble(), z, mas["r"] as Double),
+                radius = 1f,
+                center = Offset((mas["width"] as Int - i - 1).toFloat(), j.toFloat())
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTime::class)
+@Composable
+@Preview
+fun App() {
+    val offset = remember { mutableStateOf(0f) }
+
+    val c by remember { mutableStateOf(Complex(-0.74543, 0.11301)) }
+    val maxIter by remember { mutableStateOf(300) }
+    val r by remember { mutableStateOf(CalculateR(c)) }
+
+    val coroutineScope = CoroutineScope(Dispatchers.Main)
+
+    MaterialTheme {
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()
+            .scrollable(
+                orientation = Orientation.Vertical,
+                state = rememberScrollableState { delta ->
+                    offset.value = offset.value + delta // update the state
+                    delta // indicate that we consumed all the pixels available
+                }
+            ),
+            onDraw = {
+                var width = this.size.width.toInt()
+                var height = this.size.height.toInt()
+                var xMin = -r + offset.value * 1e-3;
+                var yMin = -r + offset.value * 1e-3;
+                var xMax = r - offset.value * 1e-3;
+                var yMax = r - offset.value * 1e-3;
+
+                println("R = $r")
+
+                val xStep: Double = Math.abs(xMax - xMin) / width
+                val yStep: Double = Math.abs(yMax - yMin) / height
+
+                var xyIdx: MutableMap<Int, MutableMap<Int, Int>> = mutableMapOf()
+                var maxIdx = 0
+                for (i in 0 until width) {
+                    xyIdx.put(i, mutableMapOf())
+                    for (j in 0 until height) {
+                        val x = xMin + i * xStep
+                        val y = yMin + j * yStep
+                        val z = Complex(x, y)
+                        val zIter: MutableList<Complex> = SqPolyIteration(z, c, maxIter, r)
+                        val idx: Int = zIter.count() - 1
+                        if (maxIdx < idx) {
+                            maxIdx = idx
+                        }
+                        xyIdx[i]?.put(j, idx)
+                    }
+                }
+
+                var d = this
+                val timeTaken = measureTime {
+                runBlocking{
+                    var n = 18
+                        for (i in 0 until n) {
+                            launch {
+                                //if (i == 2) delay(1000L)
+                                val timeTaken = measureTime {
+                                    Paint(
+                                        mapOf(
+                                            "d" to d, "maxIdx" to maxIdx, "r" to r, "width" to width,
+                                            "height" to height, "xyIdx" to xyIdx, "xMin" to xMin, "yMin" to yMin,
+                                            "xStep" to xStep, "yStep" to yStep, "i" to i*width/n, "bound" to (i+1)*width/n
+                                        )
+                                    )
+                                }
+                                println(timeTaken)
+                            }
+                        }
+
+                    
+                }}
+                println("main: $timeTaken")
+
+                /*runBlocking{
+                    launch{
+                        for(i in 0..5){
+                            delay(400L)
+                            if (i == 2)
+                            println(i)
+                            d.drawCircle(
+                                color = Color.Red,
+                                radius = 10f,
+                                center = Offset(i.toFloat() * 10, 100f)
+                            )
+                        }
+                    }
+                    launch{
+                        for(i in 6..10){
+                            delay(400L)
+                            println(i)
+                            d.drawCircle(
+                                color = Color.Green,
+                                radius = 10f,
+                                center = Offset(i.toFloat() * 10, 200f)
+                            )
+                        }
+                    }
+                }*/
+            }
+        )
+    }
+}
+
+fun main() = application {
+    Window(onCloseRequest = ::exitApplication,
+        state = rememberWindowState(width = 600.dp, height = 600.dp)) {
+        App()
+    }
+}
